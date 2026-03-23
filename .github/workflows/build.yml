@@ -9,20 +9,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     
-    # 环境变量配置：双保险策略
+    # 环境变量配置：屏蔽 Node.js 版本警告
     env:
-      # 尝试强制使用新版 Node.js
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      # 允许使用非安全版本，防止因版本问题中断
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       
     steps:
-    # 使用明确的 SHA 版本号来锁定最新功能（绕过版本号检查）
-    - uses: actions/checkout@61b9e3751b9c9f8f2cf0df3a7f93b10b9c3a10b6 # v4.1.2
+    # 使用官方最新版本 (v4)
+    - uses: actions/checkout@v4
     
+    # 使用官方最新版本 (v5)
     - name: Setup Python
-      uses: actions/setup-python@8c46bea93a1e3c3d7c5fc63c8d4b4d3b8b1b8220 # v5.3.0
-      
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        
     - name: Install dependencies
       run: |
         sudo apt-get update
@@ -36,7 +36,7 @@ jobs:
         buildozer android debug
         
     - name: Upload APK
-      uses: actions/upload-artifact@5d5d22a312661f99099a4a1c6c2e4e7e5e4e5e4e # v4.3.1
+      uses: actions/upload-artifact@v4
       with:
         name: wallhaven-apk
         path: bin/*.apk
