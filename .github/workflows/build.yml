@@ -12,8 +12,6 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       BUILDOZER_USE_VENV: 0
-      # 开启多线程编译，加快速度
-      BUILDOZER_ANDROID_COMPILE_THREADS: 4
       
     steps:
     - uses: actions/checkout@v4
@@ -30,10 +28,26 @@ jobs:
         
     - name: Setup Android SDK
       run: |
-        mkdir -p /home/runner/.buildozer/android/platform
-        ln -s /usr/local/lib/android/sdk /home/runner/.buildozer/android/platform/android-sdk
+        # 创建 Buildozer 期望的目录结构
+        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/tools/bin
+        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/build-tools
+        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/platforms
+        
+        # 下载 command-line tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
+        unzip -q /tmp/cmdline-tools.zip -d /tmp/
+        
+        # 复制 sdkmanager 到 tools/bin
+        cp /tmp/cmdline-tools/bin/* /home/runner/.buildozer/android/platform/android-sdk/tools/bin/
+        chmod +x /home/runner/.buildozer/android/platform/android-sdk/tools/bin/*
+        
+        # 设置环境变量
         echo "ANDROID_HOME=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+        
+        # 接受许可证并安装 build-tools
+        yes | /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+        /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33"
         
     - name: Install Python dependencies
       run: |
@@ -41,9 +55,7 @@ jobs:
         pip install --user buildozer cython
         
     - name: Build with Buildozer
-      id: build
       run: |
-        # 生成配置文件
         echo "[app]" > buildozer.spec
         echo "title = Wallhaven" >> buildozer.spec
         echo "package.name = wallhaven" >> buildozer.spec
@@ -51,37 +63,28 @@ jobs:
         echo "source.dir = ." >> buildozer.spec
         echo "source.include_exts = py,png,jpg,kv,atlas,json" >> buildozer.spec
         echo "version = 1.0" >> buildozer.spec
-        echo "requirements = python3,kivy,requests,urllib3,certifi,charset-normalizer,idna,Pillow" >> buildozer.spec
+        echo "requirements = python3,kivy,requests" >> buildozer.spec
         echo "orientation = portrait" >> buildozer.spec
-        echo "fullscreen = 0" >> buildozer.spec
-        echo "android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE" >> buildozer.spec
+        echo "android.permissions = INTERNET" >> buildozer.spec
         echo "android.api = 33" >> buildozer.spec
         echo "android.minapi = 21" >> buildozer.spec
-        echo "android.archs = arm64-v8a,armeabi-v7a" >> buildozer.spec
+        echo "android.archs = arm64-v8a" >> buildozer.spec
         echo "android.accept_sdk_license = True" >> buildozer.spec
         echo "[buildozer]" >> buildozer.spec
         echo "log_level = 2" >> buildozer.spec
-        echo "warn_on_root = 1" >> buildozer.spec
         
-        # 运行编译 (输出日志到 build.log)
-        echo "开始编译..."
-        buildozer -v android debug > build.log 2>&1
+        buildozer -v android debug 2>&1 | tee build.log
         
-        # 检查是否生成了 APK
         if [ -f bin/*.apk ]; then
-            echo "编译成功！APK 已生成。"
             echo "BUILD_SUCCESS=true" >> $GITHUB_OUTPUT
         else
-            echo "编译失败！未找到 APK 文件。"
             echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
-            # 打印日志最后 100 行方便查看错误
-            echo "--- 最后的日志 ---"
             tail -n 100 build.log
             exit 1
         fi
         
     - name: Upload APK
-      if: steps.build.outputs.BUILD_SUCCESS == 'true'
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: Wallhaven-APK
