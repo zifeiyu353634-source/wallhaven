@@ -12,8 +12,12 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       BUILDOZER_USE_VENV: 0
-      # 强制记录日志
-      BUILDOZER_LOG_LEVEL: 2
+      # 直接使用 GitHub 预装的 Android SDK
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      # 使用 GitHub 预装的 NDK
+      ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.13750724
+      ANDROID_NDK: /usr/local/lib/android/sdk/ndk/27.3.13750724
       
     steps:
     - uses: actions/checkout@v4
@@ -28,31 +32,16 @@ jobs:
         sudo apt-get update -y
         sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
         
-    - name: Setup Android SDK
+    - name: Verify Android SDK
       run: |
-        # 开启命令回显，方便调试
-        set -x
-        
-        # 创建目录
-        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/tools/bin
-        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/build-tools
-        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/platforms
-        
-        # 下载命令行工具
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
-        unzip -q /tmp/cmdline-tools.zip -d /tmp/
-        
-        # 复制 sdkmanager
-        cp /tmp/cmdline-tools/bin/* /home/runner/.buildozer/android/platform/android-sdk/tools/bin/
-        chmod +x /home/runner/.buildozer/android/platform/android-sdk/tools/bin/*
-        
-        # 设置环境变量
-        echo "ANDROID_HOME=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        
-        # 安装 SDK 组件 (忽略部分错误，尽量继续)
-        yes | /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager --licenses || true
-        /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33" || echo "SDK安装可能有部分失败，尝试继续..."
+        echo "检查 Android SDK 路径:"
+        ls -la $ANDROID_HOME/
+        echo "检查 build-tools:"
+        ls -la $ANDROID_HOME/build-tools/ || echo "build-tools 目录不存在"
+        echo "检查 platforms:"
+        ls -la $ANDROID_HOME/platforms/ || echo "platforms 目录不存在"
+        echo "检查 NDK:"
+        ls -la $ANDROID_NDK_HOME/ || echo "NDK 目录不存在"
         
     - name: Install Python dependencies
       run: |
@@ -61,10 +50,7 @@ jobs:
         
     - name: Build with Buildozer
       run: |
-        # 创建日志文件
-        touch build.log
-        
-        # 生成配置
+        # 创建 buildozer.spec，直接指向系统 SDK
         echo "[app]" > buildozer.spec
         echo "title = Wallhaven" >> buildozer.spec
         echo "package.name = wallhaven" >> buildozer.spec
@@ -78,11 +64,14 @@ jobs:
         echo "android.api = 33" >> buildozer.spec
         echo "android.minapi = 21" >> buildozer.spec
         echo "android.archs = arm64-v8a" >> buildozer.spec
+        # 关键：指定 SDK 和 NDK 路径
+        echo "android.sdk_path = /usr/local/lib/android/sdk" >> buildozer.spec
+        echo "android.ndk_path = /usr/local/lib/android/sdk/ndk/27.3.13750724" >> buildozer.spec
         echo "android.accept_sdk_license = True" >> buildozer.spec
         echo "[buildozer]" >> buildozer.spec
         echo "log_level = 2" >> buildozer.spec
         
-        # 运行 Buildozer 并同时输出到控制台和文件
+        # 运行 buildozer
         buildozer -v android debug 2>&1 | tee build.log
         
         # 检查结果
@@ -91,7 +80,7 @@ jobs:
         else
             echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
             echo "编译失败，打印最后日志："
-            tail -n 100 build.log
+            tail -n 200 build.log
             exit 1
         fi
         
@@ -103,7 +92,7 @@ jobs:
         path: bin/*.apk
         
     - name: Upload Build Log
-      if: always()  # 无论成功失败都上传日志
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: build-log
