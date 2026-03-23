@@ -11,9 +11,12 @@ jobs:
     
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-      DEBIAN_FRONTEND: noninteractive
-      ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
-      ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
+      # 关键：告诉 Buildozer 不要自己下载 NDK，用 GitHub 自带的
+      ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+      ANDROID_NDK: ${{ env.ANDROID_NDK_LATEST_HOME }}
+      # 关键：告诉 Buildozer 也不要自己下载 SDK，用 GitHub 自带的
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
       
     steps:
     - uses: actions/checkout@v4
@@ -45,47 +48,7 @@ jobs:
           libsdl2-dev \
           libsdl2-image-dev \
           libsdl2-mixer-dev \
-          libsdl2-ttf-dev \
-          xclip \
-          xsel
-        
-    - name: Setup Android SDK
-      run: |
-        # 创建 SDK 目录结构
-        mkdir -p $ANDROID_HOME
-        mkdir -p $ANDROID_HOME/tools/bin
-        mkdir -p $ANDROID_HOME/cmdline-tools
-        
-        # 下载 command-line tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
-        unzip -q /tmp/cmdline-tools.zip -d /tmp/
-        
-        # 移动到正确位置
-        mv /tmp/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
-        
-        # 创建符号链接，让 Buildozer 能找到 sdkmanager
-        ln -s $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager $ANDROID_HOME/tools/bin/sdkmanager
-        ln -s $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager $ANDROID_HOME/tools/bin/avdmanager
-        
-        # 设置环境变量
-        echo "$ANDROID_HOME/tools/bin" >> $GITHUB_PATH
-        echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-        
-        # 接受所有许可证
-        yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-        
-        # 安装必需的 SDK 组件
-        $ANDROID_HOME/tools/bin/sdkmanager \
-          "platform-tools" \
-          "platforms;android-33" \
-          "build-tools;33.0.2" \
-          "build-tools;34.0.0" \
-          "ndk;25.1.8937393" \
-          "cmake;3.22.1"
-        
-        # 设置权限
-        chmod -R 755 $ANDROID_HOME
+          libsdl2-ttf-dev
         
     - name: Install Python dependencies
       run: |
@@ -94,12 +57,11 @@ jobs:
         
     - name: Build with Buildozer
       run: |
-        # 设置 buildozer 环境变量
+        # 设置 buildozer 不使用虚拟环境
         export BUILDOZER_USE_VENV=0
-        export ANDROID_HOME=$ANDROID_HOME
-        export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
         
-        # 创建 buildozer.spec 如果不存在
+        # 创建 buildozer.spec (如果不存在)
+        # 强制指定使用系统环境，不下载
         if [ ! -f buildozer.spec ]; then
           echo "[app]" > buildozer.spec
           echo "title = Wallhaven" >> buildozer.spec
@@ -110,9 +72,20 @@ jobs:
           echo "requirements = python3,kivy,requests" >> buildozer.spec
           echo "android.permissions = INTERNET" >> buildozer.spec
           echo "android.api = 33" >> buildozer.spec
+          # 使用 GitHub 最新的 API 级别
           echo "android.minapi = 21" >> buildozer.spec
           echo "android.archs = arm64-v8a,armeabi-v7a" >> buildozer.spec
+          # 关键配置：指向系统路径
+          echo "android.ndk = $ANDROID_NDK_HOME" >> buildozer.spec
+          echo "android.sdk_path = $ANDROID_SDK_ROOT" >> buildozer.spec
+          # 允许使用预览版 SDK
+          echo "android.accept_sdk_license = True" >> buildozer.spec
         fi
+        
+        # 验证环境
+        echo "Using NDK at: $ANDROID_NDK_HOME"
+        echo "Using SDK at: $ANDROID_SDK_ROOT"
+        ls -la $ANDROID_SDK_ROOT
         
         # 运行 buildozer
         buildozer -v android debug
