@@ -12,6 +12,8 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       BUILDOZER_USE_VENV: 0
+      # 开启多线程编译，加快速度
+      BUILDOZER_ANDROID_COMPILE_THREADS: 4
       
     steps:
     - uses: actions/checkout@v4
@@ -32,7 +34,6 @@ jobs:
         ln -s /usr/local/lib/android/sdk /home/runner/.buildozer/android/platform/android-sdk
         echo "ANDROID_HOME=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-        ls -la /home/runner/.buildozer/android/platform/android-sdk/build-tools/ || echo "checking build-tools"
         
     - name: Install Python dependencies
       run: |
@@ -40,7 +41,9 @@ jobs:
         pip install --user buildozer cython
         
     - name: Build with Buildozer
+      id: build
       run: |
+        # 生成配置文件
         echo "[app]" > buildozer.spec
         echo "title = Wallhaven" >> buildozer.spec
         echo "package.name = wallhaven" >> buildozer.spec
@@ -59,13 +62,29 @@ jobs:
         echo "[buildozer]" >> buildozer.spec
         echo "log_level = 2" >> buildozer.spec
         echo "warn_on_root = 1" >> buildozer.spec
-        buildozer -v android debug 2>&1 | tee build.log
+        
+        # 运行编译 (输出日志到 build.log)
+        echo "开始编译..."
+        buildozer -v android debug > build.log 2>&1
+        
+        # 检查是否生成了 APK
+        if [ -f bin/*.apk ]; then
+            echo "编译成功！APK 已生成。"
+            echo "BUILD_SUCCESS=true" >> $GITHUB_OUTPUT
+        else
+            echo "编译失败！未找到 APK 文件。"
+            echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
+            # 打印日志最后 100 行方便查看错误
+            echo "--- 最后的日志 ---"
+            tail -n 100 build.log
+            exit 1
+        fi
         
     - name: Upload APK
-      if: success()
+      if: steps.build.outputs.BUILD_SUCCESS == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: wallhaven-apk
+        name: Wallhaven-APK
         path: bin/*.apk
         
     - name: Upload Build Log
