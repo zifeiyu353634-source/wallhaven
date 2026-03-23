@@ -14,7 +14,6 @@ jobs:
       BUILDOZER_USE_VENV: 0
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      # 使用 p4a 推荐的 NDK 25b
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/25.2.9519653
       ANDROID_NDK: /usr/local/lib/android/sdk/ndk/25.2.9519653
       BUILDOZER_ANDROID_ACCEPT_LICENSE: 'True'
@@ -30,45 +29,31 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update -y
-        sudo apt-get install -y \
-          git zip unzip wget curl \
-          openjdk-17-jdk \
-          python3-pip python3-venv \
-          autoconf libtool pkg-config \
-          zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 \
-          cmake libffi-dev libssl-dev \
-          libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
-          libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-          libpulse-dev libasound2-dev
+        sudo apt-get install -y git zip unzip wget curl openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpulse-dev libasound2-dev
         
     - name: Check available NDK versions
       run: |
-        echo "检查可用的 NDK 版本:"
-        ls -la /usr/local/lib/android/sdk/ndk/ || echo "NDK 目录不存在"
+        echo "Available NDK versions:"
+        ls -la /usr/local/lib/android/sdk/ndk/ || echo "No NDK found"
         
-    - name: Setup Android SDK tools
+    - name: Setup Android SDK
       run: |
-        # 检查并安装 command-line tools
         if [ ! -d "$ANDROID_HOME/cmdline-tools" ]; then
-          echo "安装 command-line tools..."
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
           sudo mkdir -p $ANDROID_HOME/cmdline-tools/latest
           sudo unzip -q /tmp/cmdline-tools.zip -d /tmp/
           sudo mv /tmp/cmdline-tools/* $ANDROID_HOME/cmdline-tools/latest/
           sudo chmod +x $ANDROID_HOME/cmdline-tools/latest/bin/*
         fi
-        
-        # 安装 build-tools 和 platform
         yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME "build-tools;33.0.2" "platforms;android-33" || true
         
     - name: Install Python dependencies
       run: |
         pip install --user --upgrade pip setuptools wheel
-        pip install --user buildozer cython virtualenv
+        pip install --user buildozer cython
         
     - name: Build with Buildozer
       run: |
-        # 创建 buildozer.spec，使用 NDK 25b
         cat > buildozer.spec << 'EOF'
 [app]
 title = Wallhaven
@@ -86,20 +71,14 @@ android.archs = arm64-v8a
 android.sdk_path = /usr/local/lib/android/sdk
 android.ndk_path = /usr/local/lib/android/sdk/ndk/25.2.9519653
 android.accept_sdk_license = True
-android.ndk = 25b
 [buildozer]
 log_level = 2
 EOF
-        
-        # 运行 buildozer
         buildozer -v android debug 2>&1 | tee build.log
-        
-        # 检查结果
         if [ -f bin/*.apk ]; then
           echo "BUILD_SUCCESS=true" >> $GITHUB_OUTPUT
         else
           echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
-          echo "编译失败，打印最后日志："
           tail -n 200 build.log
           exit 1
         fi
