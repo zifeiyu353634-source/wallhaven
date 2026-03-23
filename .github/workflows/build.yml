@@ -7,11 +7,14 @@ on:
   workflow_dispatch:
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 使用更稳定的 Ubuntu 22.04 版本
+    runs-on: ubuntu-22.04
     
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-      DEBIAN_FRONTEND: noninteractive  # 避免交互式提示
+      DEBIAN_FRONTEND: noninteractive
+      # Android SDK 环境变量
+      ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
       
     steps:
     - uses: actions/checkout@v4
@@ -21,13 +24,9 @@ jobs:
       with:
         python-version: '3.10'
         
-    - name: Install dependencies
+    - name: Install system dependencies
       run: |
-        # 更新系统源
         sudo apt-get update -y
-        sudo apt-get upgrade -y
-        
-        # 安装基础依赖
         sudo apt-get install -y \
           git \
           zip \
@@ -47,19 +46,72 @@ jobs:
           libsdl2-dev \
           libsdl2-image-dev \
           libsdl2-mixer-dev \
-          libsdl2-ttf-dev
+          libsdl2-ttf-dev \
+          xclip \
+          xsel
         
-        # 升级 pip
+    - name: Setup Android SDK
+      run: |
+        # 创建 SDK 目录
+        mkdir -p $ANDROID_HOME
+        
+        # 下载 command-line tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
+        unzip -q /tmp/cmdline-tools.zip -d /tmp/
+        
+        # 移动到正确位置
+        mkdir -p $ANDROID_HOME/cmdline-tools
+        mv /tmp/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+        
+        # 设置环境变量
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        
+        # 接受所有许可证
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+        
+        # 安装必需的 SDK 组件
+        $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+          "platform-tools" \
+          "platforms;android-33" \
+          "build-tools;33.0.2" \
+          "build-tools;34.0.0" \
+          "ndk;25.1.8937393" \
+          "cmake;3.22.1"
+        
+        # 设置权限
+        chmod -R 755 $ANDROID_HOME
+        
+    - name: Install Python dependencies
+      run: |
         pip install --user --upgrade pip setuptools wheel
-        
-        # 安装 Python 依赖
         pip install --user buildozer cython virtualenv
         
     - name: Build with Buildozer
       run: |
         # 设置 buildozer 环境变量
         export BUILDOZER_USE_VENV=0
-        buildozer android debug
+        export ANDROID_HOME=$ANDROID_HOME
+        export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
+        
+        # 创建 buildozer.spec 如果不存在
+        if [ ! -f buildozer.spec ]; then
+          echo "[app]" > buildozer.spec
+          echo "title = Wallhaven" >> buildozer.spec
+          echo "package.name = wallhaven" >> buildozer.spec
+          echo "package.domain = org.wallhaven.app" >> buildozer.spec
+          echo "source.dir = ." >> buildozer.spec
+          echo "version = 1.0" >> buildozer.spec
+          echo "requirements = python3,kivy,requests" >> buildozer.spec
+          echo "android.permissions = INTERNET" >> buildozer.spec
+          echo "android.api = 33" >> buildozer.spec
+          echo "android.minapi = 21" >> buildozer.spec
+          echo "android.archs = arm64-v8a,armeabi-v7a" >> buildozer.spec
+        fi
+        
+        # 运行 buildozer
+        buildozer -v android debug
         
     - name: Upload APK
       uses: actions/upload-artifact@v4
