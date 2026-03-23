@@ -12,7 +12,6 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       DEBIAN_FRONTEND: noninteractive
-      # Android SDK 环境变量
       ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
       ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
       
@@ -52,27 +51,32 @@ jobs:
         
     - name: Setup Android SDK
       run: |
-        # 创建 SDK 目录
+        # 创建 SDK 目录结构
         mkdir -p $ANDROID_HOME
+        mkdir -p $ANDROID_HOME/tools/bin
+        mkdir -p $ANDROID_HOME/cmdline-tools
         
         # 下载 command-line tools
         wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
         unzip -q /tmp/cmdline-tools.zip -d /tmp/
         
         # 移动到正确位置
-        mkdir -p $ANDROID_HOME/cmdline-tools
         mv /tmp/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
         
+        # 创建符号链接，让 Buildozer 能找到 sdkmanager
+        ln -s $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager $ANDROID_HOME/tools/bin/sdkmanager
+        ln -s $ANDROID_HOME/cmdline-tools/latest/bin/avdmanager $ANDROID_HOME/tools/bin/avdmanager
+        
         # 设置环境变量
-        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        echo "$ANDROID_HOME/tools/bin" >> $GITHUB_PATH
         echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
         
         # 接受所有许可证
-        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+        yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses > /dev/null 2>&1 || true
         
         # 安装必需的 SDK 组件
-        $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+        $ANDROID_HOME/tools/bin/sdkmanager \
           "platform-tools" \
           "platforms;android-33" \
           "build-tools;33.0.2" \
