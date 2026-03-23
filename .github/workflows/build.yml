@@ -12,6 +12,8 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       BUILDOZER_USE_VENV: 0
+      # 强制记录日志
+      BUILDOZER_LOG_LEVEL: 2
       
     steps:
     - uses: actions/checkout@v4
@@ -28,16 +30,19 @@ jobs:
         
     - name: Setup Android SDK
       run: |
-        # 创建 Buildozer 期望的目录结构
+        # 开启命令回显，方便调试
+        set -x
+        
+        # 创建目录
         mkdir -p /home/runner/.buildozer/android/platform/android-sdk/tools/bin
         mkdir -p /home/runner/.buildozer/android/platform/android-sdk/build-tools
         mkdir -p /home/runner/.buildozer/android/platform/android-sdk/platforms
         
-        # 下载 command-line tools
+        # 下载命令行工具
         wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
         unzip -q /tmp/cmdline-tools.zip -d /tmp/
         
-        # 复制 sdkmanager 到 tools/bin
+        # 复制 sdkmanager
         cp /tmp/cmdline-tools/bin/* /home/runner/.buildozer/android/platform/android-sdk/tools/bin/
         chmod +x /home/runner/.buildozer/android/platform/android-sdk/tools/bin/*
         
@@ -45,9 +50,9 @@ jobs:
         echo "ANDROID_HOME=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=/home/runner/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
         
-        # 接受许可证并安装 build-tools
-        yes | /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-        /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33"
+        # 安装 SDK 组件 (忽略部分错误，尽量继续)
+        yes | /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager --licenses || true
+        /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager "build-tools;33.0.2" "platforms;android-33" || echo "SDK安装可能有部分失败，尝试继续..."
         
     - name: Install Python dependencies
       run: |
@@ -56,6 +61,10 @@ jobs:
         
     - name: Build with Buildozer
       run: |
+        # 创建日志文件
+        touch build.log
+        
+        # 生成配置
         echo "[app]" > buildozer.spec
         echo "title = Wallhaven" >> buildozer.spec
         echo "package.name = wallhaven" >> buildozer.spec
@@ -73,12 +82,15 @@ jobs:
         echo "[buildozer]" >> buildozer.spec
         echo "log_level = 2" >> buildozer.spec
         
+        # 运行 Buildozer 并同时输出到控制台和文件
         buildozer -v android debug 2>&1 | tee build.log
         
+        # 检查结果
         if [ -f bin/*.apk ]; then
             echo "BUILD_SUCCESS=true" >> $GITHUB_OUTPUT
         else
             echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
+            echo "编译失败，打印最后日志："
             tail -n 100 build.log
             exit 1
         fi
@@ -91,7 +103,7 @@ jobs:
         path: bin/*.apk
         
     - name: Upload Build Log
-      if: failure()
+      if: always()  # 无论成功失败都上传日志
       uses: actions/upload-artifact@v4
       with:
         name: build-log
