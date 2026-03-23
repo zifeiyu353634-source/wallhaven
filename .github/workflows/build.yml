@@ -12,12 +12,12 @@ jobs:
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
       BUILDOZER_USE_VENV: 0
-      # 直接使用 GitHub 预装的 Android SDK
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      # 使用 GitHub 预装的 NDK
       ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.13750724
       ANDROID_NDK: /usr/local/lib/android/sdk/ndk/27.3.13750724
+      # 强制使用系统 SDK，不自动下载
+      BUILDOZER_ANDROID_ACCEPT_LICENSE: 'True'
       
     steps:
     - uses: actions/checkout@v4
@@ -32,16 +32,38 @@ jobs:
         sudo apt-get update -y
         sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
         
-    - name: Verify Android SDK
+    - name: Setup Android SDK tools
       run: |
-        echo "检查 Android SDK 路径:"
-        ls -la $ANDROID_HOME/
-        echo "检查 build-tools:"
-        ls -la $ANDROID_HOME/build-tools/ || echo "build-tools 目录不存在"
-        echo "检查 platforms:"
-        ls -la $ANDROID_HOME/platforms/ || echo "platforms 目录不存在"
-        echo "检查 NDK:"
-        ls -la $ANDROID_NDK_HOME/ || echo "NDK 目录不存在"
+        echo "检查 Android SDK 目录结构:"
+        find $ANDROID_HOME -name "sdkmanager" 2>/dev/null || echo "未找到 sdkmanager"
+        
+        # 创建 tools/bin 目录并创建符号链接
+        sudo mkdir -p $ANDROID_HOME/tools/bin
+        
+        # 查找实际的 sdkmanager 位置
+        SDKMANAGER_PATH=$(find $ANDROID_HOME -name "sdkmanager" -type f 2>/dev/null | head -1)
+        
+        if [ -n "$SDKMANAGER_PATH" ]; then
+          echo "找到 sdkmanager: $SDKMANAGER_PATH"
+          # 创建符号链接
+          sudo ln -sf $SDKMANAGER_PATH $ANDROID_HOME/tools/bin/sdkmanager
+          echo "符号链接创建成功"
+        else
+          echo "未找到 sdkmanager，尝试安装 command-line tools..."
+          # 下载 command-line tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O /tmp/cmdline-tools.zip
+          sudo mkdir -p $ANDROID_HOME/cmdline-tools/latest
+          sudo unzip -q /tmp/cmdline-tools.zip -d /tmp/
+          sudo mv /tmp/cmdline-tools/* $ANDROID_HOME/cmdline-tools/latest/
+          sudo chmod +x $ANDROID_HOME/cmdline-tools/latest/bin/*
+          # 创建符号链接
+          sudo ln -sf $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager $ANDROID_HOME/tools/bin/sdkmanager
+        fi
+        
+        # 验证 sdkmanager
+        echo "验证 sdkmanager:"
+        ls -la $ANDROID_HOME/tools/bin/sdkmanager
+        $ANDROID_HOME/tools/bin/sdkmanager --version || echo "sdkmanager 版本检查失败"
         
     - name: Install Python dependencies
       run: |
@@ -50,7 +72,7 @@ jobs:
         
     - name: Build with Buildozer
       run: |
-        # 创建 buildozer.spec，直接指向系统 SDK
+        # 创建 buildozer.spec
         echo "[app]" > buildozer.spec
         echo "title = Wallhaven" >> buildozer.spec
         echo "package.name = wallhaven" >> buildozer.spec
@@ -64,7 +86,6 @@ jobs:
         echo "android.api = 33" >> buildozer.spec
         echo "android.minapi = 21" >> buildozer.spec
         echo "android.archs = arm64-v8a" >> buildozer.spec
-        # 关键：指定 SDK 和 NDK 路径
         echo "android.sdk_path = /usr/local/lib/android/sdk" >> buildozer.spec
         echo "android.ndk_path = /usr/local/lib/android/sdk/ndk/27.3.13750724" >> buildozer.spec
         echo "android.accept_sdk_license = True" >> buildozer.spec
@@ -76,12 +97,12 @@ jobs:
         
         # 检查结果
         if [ -f bin/*.apk ]; then
-            echo "BUILD_SUCCESS=true" >> $GITHUB_OUTPUT
+          echo "BUILD_SUCCESS=true" >> $GITHUB_OUTPUT
         else
-            echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
-            echo "编译失败，打印最后日志："
-            tail -n 200 build.log
-            exit 1
+          echo "BUILD_SUCCESS=false" >> $GITHUB_OUTPUT
+          echo "编译失败，打印最后日志："
+          tail -n 200 build.log
+          exit 1
         fi
         
     - name: Upload APK
