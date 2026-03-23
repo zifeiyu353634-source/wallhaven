@@ -11,12 +11,6 @@ jobs:
     
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
-      # 关键：告诉 Buildozer 不要自己下载 NDK，用 GitHub 自带的
-      ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
-      ANDROID_NDK: ${{ env.ANDROID_NDK_LATEST_HOME }}
-      # 关键：告诉 Buildozer 也不要自己下载 SDK，用 GitHub 自带的
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      ANDROID_HOME: /usr/local/lib/android/sdk
       
     steps:
     - uses: actions/checkout@v4
@@ -25,6 +19,20 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
+        
+    - name: Setup Android Environment
+      run: |
+        # 设置环境变量
+        echo "ANDROID_NDK_HOME=/usr/local/lib/android/sdk/ndk/27.3.13750724" >> $GITHUB_ENV
+        echo "ANDROID_NDK=/usr/local/lib/android/sdk/ndk/27.3.13750724" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+        echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+        
+        # 验证路径是否存在
+        echo "检查 NDK 路径:"
+        ls -la /usr/local/lib/android/sdk/ndk/ || echo "NDK 目录不存在"
+        echo "检查 SDK 路径:"
+        ls -la /usr/local/lib/android/sdk/ || echo "SDK 目录不存在"
         
     - name: Install system dependencies
       run: |
@@ -61,7 +69,6 @@ jobs:
         export BUILDOZER_USE_VENV=0
         
         # 创建 buildozer.spec (如果不存在)
-        # 强制指定使用系统环境，不下载
         if [ ! -f buildozer.spec ]; then
           echo "[app]" > buildozer.spec
           echo "title = Wallhaven" >> buildozer.spec
@@ -72,20 +79,17 @@ jobs:
           echo "requirements = python3,kivy,requests" >> buildozer.spec
           echo "android.permissions = INTERNET" >> buildozer.spec
           echo "android.api = 33" >> buildozer.spec
-          # 使用 GitHub 最新的 API 级别
           echo "android.minapi = 21" >> buildozer.spec
           echo "android.archs = arm64-v8a,armeabi-v7a" >> buildozer.spec
           # 关键配置：指向系统路径
           echo "android.ndk = $ANDROID_NDK_HOME" >> buildozer.spec
           echo "android.sdk_path = $ANDROID_SDK_ROOT" >> buildozer.spec
-          # 允许使用预览版 SDK
           echo "android.accept_sdk_license = True" >> buildozer.spec
         fi
         
         # 验证环境
-        echo "Using NDK at: $ANDROID_NDK_HOME"
-        echo "Using SDK at: $ANDROID_SDK_ROOT"
-        ls -la $ANDROID_SDK_ROOT
+        echo "使用 NDK 路径: $ANDROID_NDK_HOME"
+        echo "使用 SDK 路径: $ANDROID_SDK_ROOT"
         
         # 运行 buildozer
         buildozer -v android debug
